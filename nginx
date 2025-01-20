@@ -1,0 +1,359 @@
+# Основной конфигурационный файл Nginx
+
+# Указание пользователя и группы, под которыми будет работать Nginx
+user www-data;
+
+# Автоматическое определение количества рабочих процессов
+worker_processes auto;
+
+# Файл PID для хранения идентификатора процесса Nginx
+pid /run/nginx.pid;
+
+# Подключение дополнительных модулей, если они есть
+#include /etc/nginx/modules-enabled/*.conf;
+
+# Настройки событий
+events {
+    # Максимальное количество одновременных соединений на один рабочий процесс
+    worker_connections 1024;
+
+    # Разрешение принимать несколько соединений за один раз
+    multi_accept on;
+}
+
+# Основные настройки HTTP
+http {
+    # Включение отправки файлов непосредственно через ядро
+    sendfile on;
+
+    # Отключение буферизации TCP для более быстрой передачи данных
+    tcp_nopush on;
+
+    # Включение задержки отправки пакетов для оптимизации производительности
+    tcp_nodelay on;
+
+    # Время удержания соединения в состоянии keep-alive
+    #keepalive_timeout 65;
+
+    # Максимальный размер хэш-таблицы типов MIME
+    #types_hash_max_size 2048;
+
+    # Подключение типов MIME
+    include /etc/nginx/mime.types;
+
+    # Тип по умолчанию для файлов
+    #default_type application/octet-stream;
+
+    # Настройки логирования
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    # Включение компрессии Gzip для уменьшения размера передаваемых данных
+    #gzip on;
+
+    # Отключение компрессии для старых браузеров
+    #gzip_disable "msie6";
+
+    # Включение вариативности заголовков при использовании прокси
+    #gzip_vary on;
+
+    # Включение компрессии для всех типов проксируемых запросов
+    #gzip_proxied any;
+
+    # Уровень сжатия (1-9)
+    #gzip_comp_level 6;
+
+    # Настройка буферов для компрессии
+    #gzip_buffers 16 8k;
+
+    # Минимальная версия HTTP для использования Gzip
+    #gzip_http_version 1.1;
+
+    # Типы файлов, которые будут сжиматься
+    #gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+    # Установка заголовков безопасности
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    #add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+    #add_header Content-Security-Policy "default-src 'self'" always;
+
+    # Отключение показа версии Nginx
+    server_tokens off;
+
+    # Ограничение размера тела запроса для предотвращения атак типа DoS
+    client_max_body_size 10M;
+
+    # Ограничение количества заголовков в запросе
+    large_client_header_buffers 4 16k;
+
+    # Настройка зон для ограничения запросов и соединений
+    limit_req_zone $binary_remote_addr zone=auth_zone:10m rate=10r/m;
+    limit_conn_zone $binary_remote_addr zone=conn_zone:10m;
+
+    # Защита от брутфорса и DDoS
+    # Ограничение количества запросов в единицу времени
+    limit_req zone=auth_zone burst=20 nodelay;
+
+    # Ограничение количества одновременных соединений с одного IP
+    limit_conn conn_zone 10;
+
+    # Настройки кеширования для статических файлов
+    #proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=my_cache:10m max_size=1g inactive=60m use_temp_path=off;
+
+    # Серверный блок для обработки запросов
+    server {
+        # Прослушивание указанного порта с включенным SSL и HTTP/2
+        listen 50600 ssl;
+
+        # Указание доменного имени
+        server_name proxyspace1.ydns.eu;
+
+        # Настройка SSL сертификатов от Let's Encrypt
+        ssl_certificate /etc/letsencrypt/live/proxyspace1.ydns.eu/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/proxyspace1.ydns.eu/privkey.pem;
+
+        # Поддерживаемые версии протокола TLS
+        ssl_protocols TLSv1.2 TLSv1.3;
+
+        # Предпочтение использования серверных шифров
+        ssl_prefer_server_ciphers on;
+
+        # Список поддерживаемых шифров
+        ssl_ciphers 'ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256';
+
+        # Настройка кеша SSL сессий
+        ssl_session_cache shared:SSL:10m;
+
+        # Время жизни SSL сессии
+        ssl_session_timeout 10m;
+
+        # Отключение использования SSL сессионных билетов
+        ssl_session_tickets off;
+
+        # Включение OCSP Stapling для проверки статуса сертификата
+        ssl_stapling on;
+        ssl_stapling_verify on;
+
+        # Настройка DNS резолвера для OCSP Stapling
+        resolver 8.8.8.8 8.8.4.4 valid=300s;
+        resolver_timeout 5s;
+
+        # Базовая аутентификация для защиты доступа
+        auth_basic "Restricted Access";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+
+        # Основная локация для проксирования запросов
+        location / {
+
+            # Разрешение только GET, POST, HEAD методов
+            if ($request_method !~ ^(GET|POST|HEAD)$ ) {
+                return 405;
+            }
+
+            # Проксирование запросов на внутренний веб-сервер
+            proxy_pass http://127.0.0.1:9988;
+
+	    #proxy_pass http://127.0.0.1:9989;
+            # Установка заголовка Host
+            #proxy_set_header Host $host;
+
+            # Передача реального IP клиента
+            #proxy_set_header X-Real-IP $remote_addr;
+
+            # Передача списка IP через прокси
+            #proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+            # Передача протокола (http или https)
+            #proxy_set_header X-Forwarded-Proto $scheme;
+
+            # Поддержка WebSocket соединений
+            #proxy_http_version 1.1;
+            #proxy_set_header Upgrade $http_upgrade;
+            #proxy_set_header Connection "upgrade";
+
+            # Настройки буферов для прокси
+            #proxy_buffers 16 64k;
+            #proxy_buffer_size 128k;
+
+            # Настройки таймаутов для прокси-сервера
+            #proxy_connect_timeout 60s;
+            #proxy_send_timeout 60s;
+           # proxy_read_timeout 60s;
+           # send_timeout 60s;
+
+            # Включение кеширования прокси
+            #proxy_cache my_cache;
+            #proxy_cache_bypass $http_upgrade;
+            #proxy_cache_valid 200 302 10m;
+            #proxy_cache_valid 404 1m;
+        }
+
+        # Блок для защиты скрытых файлов и директорий
+        #location ~ /\. {
+        #    # Запрещает доступ к файлам и директориям, начинающимся с точки
+        #    deny all;
+        #}
+
+
+        # Обработка ошибок 404
+        error_page 404 /404.html;
+        location = /404.html {
+            # Внутренняя обработка страницы ошибки
+            internal;
+        }
+
+        # Обработка ошибок 500, 502, 503, 504
+        error_page 500 502 503 504 /50x.html;
+        location = /50x.html {
+            # Внутренняя обработка страницы ошибки
+            internal;
+        }
+
+        # Защита от HTTP методов, кроме необходимых
+        #location / {
+        #    # Разрешение только GET, POST, HEAD методов
+        #    if ($request_method !~ ^(GET|POST|HEAD)$ ) {
+        #        return 405;
+        #    }
+        #}
+    }
+
+
+
+
+
+    # Серверный блок для обработки запросов
+    server {
+        # Прослушивание указанного порта с включенным SSL и HTTP/2
+        listen 50601 ssl;
+
+        # Указание доменного имени
+        server_name proxyspace1.ydns.eu;
+
+        # Настройка SSL сертификатов от Let's Encrypt
+        ssl_certificate /etc/letsencrypt/live/proxyspace1.ydns.eu/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/proxyspace1.ydns.eu/privkey.pem;
+
+        # Поддерживаемые версии протокола TLS
+        ssl_protocols TLSv1.2 TLSv1.3;
+
+        # Предпочтение использования серверных шифров
+        ssl_prefer_server_ciphers on;
+
+        # Список поддерживаемых шифров
+        ssl_ciphers 'ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256';
+
+        # Настройка кеша SSL сессий
+        ssl_session_cache shared:SSL:10m;
+
+        # Время жизни SSL сессии
+        ssl_session_timeout 10m;
+
+        # Отключение использования SSL сессионных билетов
+        ssl_session_tickets off;
+
+        # Включение OCSP Stapling для проверки статуса сертификата
+        ssl_stapling on;
+        ssl_stapling_verify on;
+
+        # Настройка DNS резолвера для OCSP Stapling
+        resolver 8.8.8.8 8.8.4.4 valid=300s;
+        resolver_timeout 5s;
+
+        # Базовая аутентификация для защиты доступа
+        auth_basic "Restricted Access";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+
+        # Основная локация для проксирования запросов
+        location / {
+
+            # Разрешение только GET, POST, HEAD методов
+            if ($request_method !~ ^(GET|POST|HEAD)$ ) {
+                return 405;
+            }
+
+            # Проксирование запросов на внутренний веб-сервер
+            proxy_pass http://127.0.0.1:9999;
+
+	    
+            # Установка заголовка Host
+            #proxy_set_header Host $host;
+
+            # Передача реального IP клиента
+            #proxy_set_header X-Real-IP $remote_addr;
+
+            # Передача списка IP через прокси
+            #proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+            # Передача протокола (http или https)
+            #proxy_set_header X-Forwarded-Proto $scheme;
+
+            # Поддержка WebSocket соединений
+            #proxy_http_version 1.1;
+            #proxy_set_header Upgrade $http_upgrade;
+            #proxy_set_header Connection "upgrade";
+
+            # Настройки буферов для прокси
+            #proxy_buffers 16 64k;
+            #proxy_buffer_size 128k;
+
+            # Настройки таймаутов для прокси-сервера
+            #proxy_connect_timeout 60s;
+            #proxy_send_timeout 60s;
+           # proxy_read_timeout 60s;
+           # send_timeout 60s;
+
+            # Включение кеширования прокси
+            #proxy_cache my_cache;
+            #proxy_cache_bypass $http_upgrade;
+            #proxy_cache_valid 200 302 10m;
+            #proxy_cache_valid 404 1m;
+        }
+
+        # Блок для защиты скрытых файлов и директорий
+        #location ~ /\. {
+        #    # Запрещает доступ к файлам и директориям, начинающимся с точки
+        #    deny all;
+        #}
+
+
+        # Обработка ошибок 404
+        error_page 404 /404.html;
+        location = /404.html {
+            # Внутренняя обработка страницы ошибки
+            internal;
+        }
+
+        # Обработка ошибок 500, 502, 503, 504
+        error_page 500 502 503 504 /50x.html;
+        location = /50x.html {
+            # Внутренняя обработка страницы ошибки
+            internal;
+        }
+
+        # Защита от HTTP методов, кроме необходимых
+        #location / {
+        #    # Разрешение только GET, POST, HEAD методов
+        #    if ($request_method !~ ^(GET|POST|HEAD)$ ) {
+        #        return 405;
+        #    }
+        #}
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}
